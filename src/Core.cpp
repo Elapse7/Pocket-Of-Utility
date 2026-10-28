@@ -72,7 +72,7 @@ void put(std::vector<uint8_t>& o, T v) {
 }
 
 template <class T>
-bool get(std::vector<uint8_t> const& d, size_t& i, T& v) {
+bool getVal(std::vector<uint8_t> const& d, size_t& i, T& v) {
     if (i + sizeof(T) > d.size()) return false;
     std::memcpy(&v, d.data() + i, sizeof(T));
     i += sizeof(T);
@@ -252,7 +252,7 @@ bool Engine::deserialize(std::vector<uint8_t> const& d) {
 
     float tps = 240.f;
     uint32_t n = 0;
-    if (!get(d, i, tps) || !getVar(d, i, n) || n > d.size()) return false;
+    if (!getVal(d, i, tps) || !getVar(d, i, n) || n > d.size()) return false;
 
     std::vector<Click> clicks;
     clicks.reserve(n);
@@ -278,8 +278,8 @@ bool Engine::deserialize(std::vector<uint8_t> const& d) {
         Snap s{};
         s.frame = frame;
         s.dual = d[i++] != 0;
-        if (!get(d, i, s.x1) || !get(d, i, s.y1) || !get(d, i, s.v1)) return false;
-        if (s.dual && (!get(d, i, s.x2) || !get(d, i, s.y2) || !get(d, i, s.v2))) return false;
+        if (!getVal(d, i, s.x1) || !getVal(d, i, s.y1) || !getVal(d, i, s.v1)) return false;
+        if (s.dual && (!getVal(d, i, s.x2) || !getVal(d, i, s.y2) || !getVal(d, i, s.v2))) return false;
         snaps.push_back(s);
     }
 
