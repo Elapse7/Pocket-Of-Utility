@@ -58,10 +58,10 @@ class $modify(PUScheduler, CCScheduler) {
 class $modify(PUBaseGameLayer, GJBaseGameLayer) {
     // Runs once per physics step. The replay engine hooks in here so that
     // recording and playback happen at exactly the same point of every step.
-    void processCommands(float dt) {
+    void processCommands(float dt, bool isHalfTick, bool isLastTick) {
         bool inLevel = isPlayLayer(this);
         if (inLevel) pu::Engine::get().beforeStep(this);
-        GJBaseGameLayer::processCommands(dt);
+        GJBaseGameLayer::processCommands(dt, isHalfTick, isLastTick);
         if (inLevel) pu::Engine::get().afterStep();
     }
 
