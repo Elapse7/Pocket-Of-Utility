@@ -185,9 +185,23 @@ class $modify(PUPlayLayer, PlayLayer) {
         }
     }
 
+    // Practice mode support: the engine tracks the step each checkpoint was
+    // placed on, and rewinds the recording when you respawn from one.
     void resetLevel() {
+        auto& e = pu::Engine::get();
+        e.beginReset();
         PlayLayer::resetLevel();
-        pu::Engine::get().onReset();
+        e.endReset();
+    }
+
+    void storeCheckpoint(CheckpointObject* cp) {
+        PlayLayer::storeCheckpoint(cp);
+        pu::Engine::get().onCheckpointStored(cp);
+    }
+
+    void loadFromCheckpoint(CheckpointObject* cp) {
+        PlayLayer::loadFromCheckpoint(cp);
+        pu::Engine::get().onCheckpointLoaded(cp);
     }
 
     void destroyPlayer(PlayerObject* player, GameObject* object) {
@@ -223,7 +237,7 @@ class $modify(PUPauseLayer, PauseLayer) {
     void customSetup() {
         PauseLayer::customSetup();
 
-        auto label = CCLabelBMFont::create("PU", "bigFont.fnt");
+        auto label = CCLabelBMFont::create("AL", "bigFont.fnt");
         auto spr = CircleButtonSprite::create(label, CircleBaseColor::Green, CircleBaseSize::Small);
         auto btn = CCMenuItemSpriteExtra::create(spr, this, menu_selector(PUPauseLayer::onPU));
 
@@ -245,7 +259,7 @@ class $modify(PUMenuLayer, MenuLayer) {
     bool init() {
         if (!MenuLayer::init()) return false;
 
-        auto label = CCLabelBMFont::create("PU", "bigFont.fnt");
+        auto label = CCLabelBMFont::create("AL", "bigFont.fnt");
         auto spr = CircleButtonSprite::create(label, CircleBaseColor::Green, CircleBaseSize::MediumAlt);
         auto btn = CCMenuItemSpriteExtra::create(spr, this, menu_selector(PUMenuLayer::onPU));
 
