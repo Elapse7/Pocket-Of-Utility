@@ -9,7 +9,7 @@ else()
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
 endif()
 
-project(PocketUtility VERSION 1.0.0)
+project(Alicia-Menu VERSION 1.0.0)
 
 file(GLOB SOURCES src/*.cpp)
 add_library(${PROJECT_NAME} SHARED ${SOURCES})
