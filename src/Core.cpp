@@ -1,5 +1,6 @@
 #include "Core.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -39,7 +40,7 @@ void Settings::save() const {
 }
 
 // ---------------------------------------------------------------------------
-// Small binary helpers (varints keep the macro files tiny)
+// Small binary helpers (varints keep the macro files small)
 // ---------------------------------------------------------------------------
 namespace {
 
@@ -71,6 +72,7 @@ void put(std::vector<uint8_t>& o, T v) {
     o.insert(o.end(), p, p + sizeof(T));
 }
 
+// not called "get": Engine has a static member with that name that would hide it
 template <class T>
 bool getVal(std::vector<uint8_t> const& d, size_t& i, T& v) {
     if (i + sizeof(T) > d.size()) return false;
@@ -79,14 +81,30 @@ bool getVal(std::vector<uint8_t> const& d, size_t& i, T& v) {
     return true;
 }
 
-void fixPlayer(PlayerObject* p, float x, float y, float v) {
-    if (!p) return;
-    constexpr float kTolerance = 0.05f; // game units; real desyncs are far bigger
-    if (std::abs(p->getPositionX() - x) > kTolerance ||
-        std::abs(p->getPositionY() - y) > kTolerance) {
-        p->setPosition({x, y});
-        p->m_yVelocity = v;
+void putState(std::vector<uint8_t>& o, PState const& s) {
+    put(o, s.x); put(o, s.y); put(o, s.v); put(o, s.rot);
+}
+
+bool getState(std::vector<uint8_t> const& d, size_t& i, PState& s) {
+    return getVal(d, i, s.x) && getVal(d, i, s.y) && getVal(d, i, s.v) && getVal(d, i, s.rot);
+}
+
+PState readPlayer(PlayerObject* p) {
+    PState s;
+    if (p) {
+        s.x = p->getPositionX();
+        s.y = p->getPositionY();
+        s.v = static_cast<float>(p->m_yVelocity);
+        s.rot = p->getRotation();
     }
+    return s;
+}
+
+void writePlayer(PlayerObject* p, PState const& s) {
+    if (!p) return;
+    p->setPosition({s.x, s.y});
+    p->m_yVelocity = s.v;
+    p->setRotation(s.rot);
 }
 
 } // namespace
@@ -104,15 +122,17 @@ float Engine::effectiveTps() {
 }
 
 bool Engine::startRecording(PlayLayer* pl) {
-    // Practice-mode checkpoints rewind the physics, which would corrupt the
-    // step counter. Macros are recorded as full runs from the start.
-    if (pl->m_isPracticeMode) return false;
-
     m_clicks.clear();
-    m_snaps.clear();
     m_macroTps = effectiveTps();
+
+    // Recording always starts from the very beginning of the level, so old
+    // practice checkpoints have to go. New ones can be placed while recording.
+    if (pl->m_isPracticeMode && pl->m_checkpointArray) {
+        pl->m_checkpointArray->removeAllObjects();
+    }
+
     mode = Mode::Recording;
-    pl->resetLevel(); // start from step 0
+    pl->resetLevel();
     return true;
 }
 
@@ -139,13 +159,39 @@ void Engine::stop(bool save) {
 void Engine::onReset() {
     m_step = 0;
     m_clickCursor = 0;
-    m_snapCursor = 0;
     if (mode == Mode::Recording) {
-        // Every attempt starts a fresh recording; only a completed run is kept.
+        // A restart from the beginning throws the recording away.
         m_clicks.clear();
-        m_snaps.clear();
         m_macroTps = effectiveTps();
     }
+}
+
+// Called after PlayLayer::resetLevel. If the game respawned the player from a
+// practice checkpoint, the step counter was already rewound by
+// onCheckpointLoaded, so only a real restart resets everything.
+void Engine::endReset() {
+    if (!m_loadedCheckpoint) onReset();
+}
+
+// Practice mode: dying and respawning from a checkpoint rewinds the recording
+// to the step the checkpoint was placed on, and drops every input after it.
+void Engine::onCheckpointLoaded(CheckpointObject* cp) {
+    auto it = m_cpFrames.find(cp);
+    if (it == m_cpFrames.end()) return;
+
+    m_loadedCheckpoint = true;
+    m_step = it->second;
+
+    if (mode == Mode::Recording) {
+        while (!m_clicks.empty() && m_clicks.back().frame >= m_step) m_clicks.pop_back();
+    }
+
+    m_clickCursor = static_cast<size_t>(
+        std::lower_bound(
+            m_clicks.begin(), m_clicks.end(), m_step,
+            [](Click const& c, uint32_t f) { return c.frame < f; }
+        ) - m_clicks.begin()
+    );
 }
 
 void Engine::onLevelComplete(PlayLayer* pl) {
@@ -162,48 +208,38 @@ void Engine::onLevelComplete(PlayLayer* pl) {
 
 void Engine::onClick(bool down, int button, bool p1) {
     if (mode != Mode::Recording) return;
-    m_clicks.push_back({m_step, static_cast<uint8_t>(button), down, p1});
-}
 
-void Engine::pushSnap(GJBaseGameLayer* g) {
-    Snap s{};
-    s.frame = m_step;
-    s.dual = g->m_gameState.m_isDualMode;
-    if (g->m_player1) {
-        s.x1 = g->m_player1->getPositionX();
-        s.y1 = g->m_player1->getPositionY();
-        s.v1 = static_cast<float>(g->m_player1->m_yVelocity);
-    }
-    if (s.dual && g->m_player2) {
-        s.x2 = g->m_player2->getPositionX();
-        s.y2 = g->m_player2->getPositionY();
-        s.v2 = static_cast<float>(g->m_player2->m_yVelocity);
-    }
-    m_snaps.push_back(s);
-}
-
-void Engine::applySnap(GJBaseGameLayer* g, Snap const& s) {
-    fixPlayer(g->m_player1, s.x1, s.y1, s.v1);
-    if (s.dual) fixPlayer(g->m_player2, s.x2, s.y2, s.v2);
+    Click c{};
+    c.frame = m_step;
+    c.button = static_cast<uint8_t>(button);
+    c.down = down;
+    c.p1 = p1;
+    c.hasFix = cfg().accuracy;
+    c.dual = m_preDual;
+    c.a = m_preA;
+    c.b = m_preB;
+    m_clicks.push_back(c);
 }
 
 // Runs at the very start of every physics step, before the game handles input.
 // Recording and playback use the exact same point in the step, which is what
-// keeps replays frame-accurate.
+// keeps replays accurate.
 void Engine::beforeStep(GJBaseGameLayer* g) {
     if (mode == Mode::Recording) {
-        if (cfg().accuracy && m_step % kSnapEvery == 0) pushSnap(g);
+        // remember the state the player is in right before any input of this step
+        m_preDual = g->m_gameState.m_isDualMode;
+        m_preA = readPlayer(g->m_player1);
+        m_preB = m_preDual ? readPlayer(g->m_player2) : PState{};
     } else if (mode == Mode::Playing) {
-        while (m_snapCursor < m_snaps.size() && m_snaps[m_snapCursor].frame < m_step) {
-            ++m_snapCursor;
-        }
-        if (cfg().accuracy && m_snapCursor < m_snaps.size() &&
-            m_snaps[m_snapCursor].frame == m_step) {
-            applySnap(g, m_snaps[m_snapCursor]);
-        }
-
         while (m_clickCursor < m_clicks.size() && m_clicks[m_clickCursor].frame <= m_step) {
-            auto c = m_clicks[m_clickCursor++];
+            Click const& c = m_clicks[m_clickCursor++];
+
+            // input fix: put the player exactly where it was when the input was recorded
+            if (c.hasFix && cfg().accuracy) {
+                writePlayer(g->m_player1, c.a);
+                if (c.dual) writePlayer(g->m_player2, c.b);
+            }
+
             injecting = true;
             g->handleButton(c.down, c.button, c.p1);
             injecting = false;
@@ -212,18 +248,19 @@ void Engine::beforeStep(GJBaseGameLayer* g) {
 }
 
 // ---------------------------------------------------------------------------
-// File format  ("PMR1")
+// File format  ("ALI1", saved as .ali)
 //   4 bytes  magic
 //   4 bytes  float TPS
-//   varint   click count, then per click: varint frame delta + 1 flag byte
-//   varint   snapshot count, then per snapshot: varint frame delta, 1 byte
-//            dual flag, 3 floats (+3 floats if dual)
-// A click costs about 2 bytes, so even very long macros stay small.
+//   varint   click count, then per click:
+//              varint frame delta
+//              1 flag byte: bits 0-1 button, 2 down, 3 player1, 4 has fix, 5 dual
+//              if has fix: 4 floats (player 1), plus 4 floats if dual
+// Without input fixes a click costs about 2 bytes; with them about 18.
 // ---------------------------------------------------------------------------
 std::vector<uint8_t> Engine::serialize() const {
     std::vector<uint8_t> o;
-    o.reserve(16 + m_clicks.size() * 3 + m_snaps.size() * 20);
-    o.insert(o.end(), {'P', 'M', 'R', '1'});
+    o.reserve(16 + m_clicks.size() * 20);
+    o.insert(o.end(), {'A', 'L', 'I', '1'});
     put(o, m_macroTps);
 
     putVar(o, static_cast<uint32_t>(m_clicks.size()));
@@ -231,23 +268,20 @@ std::vector<uint8_t> Engine::serialize() const {
     for (auto const& c : m_clicks) {
         putVar(o, c.frame - prev);
         prev = c.frame;
-        o.push_back(static_cast<uint8_t>((c.button & 3) | (c.down ? 4 : 0) | (c.p1 ? 8 : 0)));
-    }
-
-    putVar(o, static_cast<uint32_t>(m_snaps.size()));
-    prev = 0;
-    for (auto const& s : m_snaps) {
-        putVar(o, s.frame - prev);
-        prev = s.frame;
-        o.push_back(s.dual ? 1 : 0);
-        put(o, s.x1); put(o, s.y1); put(o, s.v1);
-        if (s.dual) { put(o, s.x2); put(o, s.y2); put(o, s.v2); }
+        o.push_back(static_cast<uint8_t>(
+            (c.button & 3) | (c.down ? 4 : 0) | (c.p1 ? 8 : 0) |
+            (c.hasFix ? 16 : 0) | (c.dual ? 32 : 0)
+        ));
+        if (c.hasFix) {
+            putState(o, c.a);
+            if (c.dual) putState(o, c.b);
+        }
     }
     return o;
 }
 
 bool Engine::deserialize(std::vector<uint8_t> const& d) {
-    if (d.size() < 9 || std::memcmp(d.data(), "PMR1", 4) != 0) return false;
+    if (d.size() < 9 || std::memcmp(d.data(), "ALI1", 4) != 0) return false;
     size_t i = 4;
 
     float tps = 240.f;
@@ -262,36 +296,29 @@ bool Engine::deserialize(std::vector<uint8_t> const& d) {
         if (!getVar(d, i, delta) || i >= d.size()) return false;
         frame += delta;
         uint8_t f = d[i++];
-        clicks.push_back({frame, static_cast<uint8_t>(f & 3), (f & 4) != 0, (f & 8) != 0});
-    }
 
-    uint32_t m = 0;
-    if (!getVar(d, i, m) || m > d.size()) return false;
-
-    std::vector<Snap> snaps;
-    snaps.reserve(m);
-    frame = 0;
-    for (uint32_t k = 0; k < m; ++k) {
-        uint32_t delta = 0;
-        if (!getVar(d, i, delta) || i >= d.size()) return false;
-        frame += delta;
-        Snap s{};
-        s.frame = frame;
-        s.dual = d[i++] != 0;
-        if (!getVal(d, i, s.x1) || !getVal(d, i, s.y1) || !getVal(d, i, s.v1)) return false;
-        if (s.dual && (!getVal(d, i, s.x2) || !getVal(d, i, s.y2) || !getVal(d, i, s.v2))) return false;
-        snaps.push_back(s);
+        Click c{};
+        c.frame = frame;
+        c.button = f & 3;
+        c.down = (f & 4) != 0;
+        c.p1 = (f & 8) != 0;
+        c.hasFix = (f & 16) != 0;
+        c.dual = (f & 32) != 0;
+        if (c.hasFix) {
+            if (!getState(d, i, c.a)) return false;
+            if (c.dual && !getState(d, i, c.b)) return false;
+        }
+        clicks.push_back(c);
     }
 
     m_clicks = std::move(clicks);
-    m_snaps = std::move(snaps);
     m_macroTps = tps;
     return true;
 }
 
 std::filesystem::path Engine::pathFor(PlayLayer* pl) const {
     int id = pl->m_level->m_levelID.value();
-    return Mod::get()->getSaveDir() / "macros" / fmt::format("{}.pmr", id);
+    return Mod::get()->getSaveDir() / "macros" / fmt::format("{}.ali", id);
 }
 
 bool Engine::saveFor(PlayLayer* pl) const {
