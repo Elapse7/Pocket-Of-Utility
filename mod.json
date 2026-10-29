@@ -4,9 +4,9 @@
 		"win": "2.2081",
 		"android": "2.2081"
 	},
-	"id": "yourname.pocket-utility",
-	"name": "Pocket Utility",
+	"id": "Alicia3498.alicia-menu",
+	"name": "Alicia Menu",
 	"version": "v1.0.0",
-	"developer": "YourName",
-	"description": "Noclip, speedhack (with audio), TPS bypass, frame stepper and an accurate replay engine, all in one touch-friendly menu."
+	"developer": "Alicia3498",
+	"description": "Noclip, speedhack (with audio), TPS bypass, frame stepper and an xdBot-style replay engine (.ali macros, input fixes, practice mode), all in one touch-friendly menu."
 }
