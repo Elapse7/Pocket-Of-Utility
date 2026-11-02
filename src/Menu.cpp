@@ -21,7 +21,6 @@ class UtilMenu : public CCLayer {
 public:
     CCLabelBMFont* m_speedLabel = nullptr;
     CCLabelBMFont* m_tpsLabel = nullptr;
-    CCLabelBMFont* m_mode = nullptr;
     CCLabelBMFont* m_info = nullptr;
 
     static UtilMenu* create() {
@@ -46,27 +45,23 @@ public:
         this->setTouchEnabled(true);
         this->setKeypadEnabled(true);
 
-        // dimmed background + main panel
+        // dimmed background + panel
         this->addChild(CCLayerColor::create({0, 0, 0, 140}, win.width, win.height));
 
         auto panel = CCScale9Sprite::create("GJ_square01.png", {0.f, 0.f, 80.f, 80.f});
-        panel->setContentSize({430.f, 290.f});
+        panel->setContentSize({340.f, 280.f});
         panel->setPosition({cx, cy});
         this->addChild(panel);
 
-        auto addBox = [&](CCSize size, CCPoint pos) {
-            auto box = CCScale9Sprite::create("square02_001.png", {0.f, 0.f, 80.f, 80.f});
-            box->setContentSize(size);
-            box->setPosition(pos);
-            box->setOpacity(70);
-            this->addChild(box);
-        };
-        addBox({195.f, 205.f}, {cx - 105.f, cy + 5.f});
-        addBox({195.f, 205.f}, {cx + 105.f, cy + 5.f});
+        auto box = CCScale9Sprite::create("square02_001.png", {0.f, 0.f, 80.f, 80.f});
+        box->setContentSize({316.f, 218.f});
+        box->setPosition({cx, cy - 6.f});
+        box->setOpacity(70);
+        this->addChild(box);
 
         auto title = CCLabelBMFont::create("Alicia Menu", "goldFont.fnt");
         title->setScale(.8f);
-        title->setPosition({cx, cy + 126.f});
+        title->setPosition({cx, cy + 118.f});
         this->addChild(title);
 
         auto menu = CCMenu::create();
@@ -74,22 +69,18 @@ public:
         menu->setTouchPriority(-501);
         this->addChild(menu);
 
-        // ---- left column: toggles ----
-        struct Row { char const* name; int tag; bool on; };
+        // ---- toggles ----
+        struct Row { char const* name; int tag; bool on; float y; };
         Row rows[] = {
-            {"Noclip",        1, c.noclip},
-            {"Speedhack",     2, c.speedhack},
-            {"Speed audio",   3, c.speedAudio},
-            {"TPS bypass",    4, c.tpsBypass},
-            {"Frame stepper", 5, c.stepper},
-            {"Input fixes",   6, c.accuracy},
+            {"Speedhack",   1, c.speedhack,  cy + 86.f},
+            {"Speed audio", 2, c.speedAudio, cy + 60.f},
+            {"TPS bypass",  3, c.tpsBypass,  cy - 6.f},
         };
-        float y = cy + 84.f;
         for (auto& r : rows) {
             auto label = CCLabelBMFont::create(r.name, "bigFont.fnt");
             label->setScale(.45f);
             label->setAnchorPoint({0.f, .5f});
-            label->setPosition({cx - 197.f, y});
+            label->setPosition({cx - 150.f, r.y});
             this->addChild(label);
 
             auto toggler = CCMenuItemToggler::createWithStandardSprites(
@@ -97,61 +88,50 @@ public:
             );
             toggler->setTag(r.tag);
             toggler->toggle(r.on);
-            toggler->setPosition({cx - 28.f, y});
+            toggler->setPosition({cx + 130.f, r.y});
             menu->addChild(toggler);
-            y -= 32.f;
         }
 
-        // ---- right column: sliders ----
+        // ---- sliders ----
         m_speedLabel = CCLabelBMFont::create("", "bigFont.fnt");
-        m_speedLabel->setScale(.45f);
-        m_speedLabel->setPosition({cx + 105.f, cy + 84.f});
+        m_speedLabel->setScale(.4f);
+        m_speedLabel->setPosition({cx, cy + 36.f});
         this->addChild(m_speedLabel);
 
-        auto speedSlider = Slider::create(this, menu_selector(UtilMenu::onSpeed), .7f);
-        speedSlider->setPosition({cx + 105.f, cy + 64.f});
+        auto speedSlider = Slider::create(this, menu_selector(UtilMenu::onSpeed), .85f);
+        speedSlider->setPosition({cx, cy + 20.f});
         speedSlider->setValue(sliderFromSpeed(c.speed));
         this->addChild(speedSlider);
         speedSlider->m_touchLogic->setTouchPriority(-501);
 
         m_tpsLabel = CCLabelBMFont::create("", "bigFont.fnt");
-        m_tpsLabel->setScale(.45f);
-        m_tpsLabel->setPosition({cx + 105.f, cy + 34.f});
+        m_tpsLabel->setScale(.4f);
+        m_tpsLabel->setPosition({cx, cy - 30.f});
         this->addChild(m_tpsLabel);
 
-        auto tpsSlider = Slider::create(this, menu_selector(UtilMenu::onTps), .7f);
-        tpsSlider->setPosition({cx + 105.f, cy + 14.f});
+        auto tpsSlider = Slider::create(this, menu_selector(UtilMenu::onTps), .85f);
+        tpsSlider->setPosition({cx, cy - 46.f});
         tpsSlider->setValue(sliderFromTps(c.tps));
         this->addChild(tpsSlider);
         tpsSlider->m_touchLogic->setTouchPriority(-501);
 
-        // ---- right column: replay engine ----
-        auto replayTitle = CCLabelBMFont::create("Replay engine", "goldFont.fnt");
-        replayTitle->setScale(.5f);
-        replayTitle->setPosition({cx + 105.f, cy - 18.f});
-        this->addChild(replayTitle);
-
+        // ---- replay buttons ----
         auto addButton = [&](char const* text, char const* tex, float x, float yy, SEL_MenuHandler cb) {
             auto spr = ButtonSprite::create(text, "bigFont.fnt", tex, .5f);
             auto btn = CCMenuItemSpriteExtra::create(spr, this, cb);
             btn->setPosition({x, yy});
             menu->addChild(btn);
         };
-        addButton("Rec",  "GJ_button_06.png", cx + 43.f,  cy - 46.f, menu_selector(UtilMenu::onRecord));
-        addButton("Play", "GJ_button_01.png", cx + 105.f, cy - 46.f, menu_selector(UtilMenu::onPlay));
-        addButton("Stop", "GJ_button_02.png", cx + 167.f, cy - 46.f, menu_selector(UtilMenu::onStop));
-
-        m_mode = CCLabelBMFont::create("", "bigFont.fnt");
-        m_mode->setScale(.38f);
-        m_mode->setPosition({cx + 105.f, cy - 74.f});
-        this->addChild(m_mode);
+        addButton("Rec",  "GJ_button_06.png", cx - 80.f, cy - 76.f, menu_selector(UtilMenu::onRecord));
+        addButton("Play", "GJ_button_01.png", cx,        cy - 76.f, menu_selector(UtilMenu::onPlay));
+        addButton("Stop", "GJ_button_02.png", cx + 80.f, cy - 76.f, menu_selector(UtilMenu::onStop));
 
         m_info = CCLabelBMFont::create("", "chatFont.fnt");
         m_info->setScale(.8f);
-        m_info->setPosition({cx + 105.f, cy - 90.f});
+        m_info->setPosition({cx, cy - 98.f});
         this->addChild(m_info);
 
-        addButton("Close", "GJ_button_01.png", cx, cy - 124.f, menu_selector(UtilMenu::onClose));
+        addButton("Close", "GJ_button_01.png", cx, cy - 122.f, menu_selector(UtilMenu::onClose));
 
         this->refresh();
         this->schedule(schedule_selector(UtilMenu::tick), .5f);
@@ -170,14 +150,13 @@ public:
         char const* mode = "Idle";
         if (e.mode == pu::Mode::Recording) mode = "Recording";
         if (e.mode == pu::Mode::Playing) mode = "Playing";
-        m_mode->setString(mode);
 
         if (e.inputCount() > 0) {
             m_info->setString(
-                fmt::format("{} inputs  -  {:.1f} KB", e.inputCount(), e.sizeInBytes() / 1024.0).c_str()
+                fmt::format("{}  -  {} inputs  -  {:.1f} KB", mode, e.inputCount(), e.sizeInBytes() / 1024.0).c_str()
             );
         } else {
-            m_info->setString("No macro in memory");
+            m_info->setString(fmt::format("{}  -  no macro in memory", mode).c_str());
         }
     }
 
@@ -187,12 +166,9 @@ public:
         bool on = !t->isToggled(); // the callback fires before the state flips
         auto& c = pu::cfg();
         switch (t->getTag()) {
-            case 1: c.noclip = on; break;
-            case 2: c.speedhack = on; break;
-            case 3: c.speedAudio = on; break;
-            case 4: c.tpsBypass = on; break;
-            case 5: c.stepper = on; c.stepRequest = false; break;
-            case 6: c.accuracy = on; break;
+            case 1: c.speedhack = on; break;
+            case 2: c.speedAudio = on; break;
+            case 3: c.tpsBypass = on; break;
         }
     }
 
